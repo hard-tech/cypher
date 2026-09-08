@@ -1,188 +1,139 @@
-## US3 — Analyse statique du malware (version simple)
+==================================================================
+RAPPORT D'ANALYSE STATIQUE - FLOSS (FLARE FLOSS v3.1.1-0-g3cd3ee6)
+==================================================================
 
-But : comprendre ce que fait le malware **sans l'exécuter**, juste en lisant
-les fichiers. L'archive `Malware.zip` contient un dossier `VIRUS/` avec
-**2 programmes** + le moteur Qt (7 DLL livrées avec).
+Fichier analysé   : Res.exe
+Chemin d'origine  : C:\Users\vboxuser\Downloads\Malware (3)\VIRUS\Res.exe
+Langage détecté   : inconnu
+Compilateur       : MinGW-w64 (GCC 4.9.3 / 5.3.0, i686-posix-dwarf-rev0)
+Framework         : Qt5
 
-| Fichier | Rôle | Preuve |
-|---|---|---|
-| `Res.exe` (25 Ko, console) | S'installe, se met en démarrage auto, **enregistre les touches du clavier** | screens 2, 3, 4 |
-| `Env.exe` (53 Ko, fenêtre) | **Envoie le fichier de frappes par e-mail** (SMTP + TLS) | screens 5, 6 |
-| 7 DLL Qt5 / MinGW | Bibliothèques normales, livrées pour que ça marche sur n'importe quel PC | screen 1 |
+Chaînes statiques extraites : 231 (5767 caractères)
+Chaînes UTF-16LE             : 0
+Stack strings                : 0
+Tight strings                : 0
+Chaînes décodées              : 1 ("[DEL]")
 
-Résultat : c'est un **keylogger avec exfiltration par e-mail**. Cela colle
-exactement au verdict VirusTotal de l'US2 (`Win32/Spy.KeyLogger`).
+------------------------------------------------------------------
+1. FONCTIONS PRINCIPALES IDENTIFIEES (IMPORTS API)
+------------------------------------------------------------------
 
----
+Persistance / exécution système :
+  - GetModuleHandleA, GetProcAddress, LoadLibraryA, FreeLibrary
+      -> résolution dynamique de fonctions (évasion détection statique)
+  - system()
+      -> exécution de commandes shell (mkdir / XCOPY observés)
 
-## Comment j'ai fait — les étapes
+Anti-analyse / anti-debug :
+  - SetUnhandledExceptionFilter, UnhandledExceptionFilter
+  - QueryPerformanceCounter, GetTickCount
+      -> techniques de détection de sandbox/debug par timing
+  - GetConsoleWindow, ShowWindow
+      -> manipulation / masquage de fenêtre console
+  - TerminateProcess, GetCurrentProcess, GetCurrentProcessId,
+    GetCurrentThreadId, GetLastError
 
-Outils : `unzip`, `file`, `strings` (chaînes de texte), `pefile` (lecture
-d'en-tête Windows/PE), `capstone` (désassembleur). Tout hors-ligne, sur un
-poste isolé. Chaque étape a une capture d'écran dans `US3/screens/`.
+Capture d'entrée utilisateur (KEYLOGGING) :
+  - GetAsyncKeyState
+  - GetKeyState
 
-**Étape 1 — Extraire et identifier** → `screens/01-extraction-identification.png`
-```
-unzip -l Malware.zip          # voir le contenu
-file Env.exe Res.exe          # type de fichier : PE32 Windows i386
-sha256sum Env.exe Res.exe     # empreintes (IOC)
-```
-On voit : 2 exécutables Windows 32 bits + les DLL de Qt 5.9 (compilé MinGW).
+Threading / concurrence :
+  - InitializeCriticalSection, EnterCriticalSection,
+    LeaveCriticalSection, DeleteCriticalSection, TlsGetValue,
+    pthread_equal
+  - Symboles C++ std::thread démanglés (_ZNSt6thread...)
+      -> usage de threads C++11 (implémentation MinGW)
 
-**Étape 2 — Lire les chaînes de `Res.exe`** → `screens/02-res-strings.png`
-```
-strings -a Res.exe
-```
-Chaînes parlantes : `c:\WindSyst\log.txt`, `mkdir c:\WindSyst`,
-`XCOPY Res.exe c:\WindSyst /S`, `...\CurrentVersion\Run`, `GetAsyncKeyState`,
-et une signature d'auteur `code par le magniquime Hafnium !`.
+Registre / configuration (Qt) :
+  - QSettings::setValue, QCoreApplication::exec
+      -> stockage de configuration, potentiellement lié au
+         registre Windows via l'API Qt
 
-**Étape 3 — Lister les imports de `Res.exe`** (fonctions qu'il appelle)
-→ `screens/03-res-imports.png`
-```
-python -c "import pefile; pe=pefile.PE('Res.exe'); ...afficher les imports..."
-```
-On trouve : `GetAsyncKeyState` / `GetKeyState` (clavier), `ShowWindow` (cacher
-la console), `system` (lancer des commandes), `QSettings::setValue` (écrire
-dans le registre), `std::thread` (tâche de fond).
+------------------------------------------------------------------
+2. IMPORTS / DLL ET SECTIONS ANALYSEES
+------------------------------------------------------------------
 
-**Étape 4 — Désassembler `Res.exe`** pour confirmer la persistance
-→ `screens/04-res-disasm-persistance.png`
-```
-python -c "
-import pefile, capstone
-pe = pefile.PE('Res.exe'); img = pe.get_memory_mapped_image()
-base = pe.OPTIONAL_HEADER.ImageBase
-md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-for i in md.disasm(img[0x401aa0-base:0x401aa0-base+220], 0x401aa0):
-    print(hex(i.address), i.mnemonic, i.op_str)
-"
-```
-(commande unique en ligne, pas de script externe : `pefile` lit le PE, `capstone` désassemble)
-Dans la fonction `0x401aa0` on lit, dans l'ordre : cacher la console →
-`system("mkdir c:\WindSyst")` → série de `system("XCOPY ... c:\WindSyst")` →
-`QSettings(...Run...).setValue("Res","C:\WindSyst\Res.exe")` et
-`setValue("Env","C:\WindSyst\Env.exe")`. => persistance prouvée.
+DLL importées :
+  - KERNEL32.dll        (API système bas niveau)
+  - USER32.dll           (clavier, fenêtres - GetAsyncKeyState)
+  - msvcrt.dll            (runtime C)
+  - libgcc_s_dw2-1.dll   (runtime GCC/MinGW)
+  - libstdc++-6.dll      (runtime C++ MinGW)
+  - libwinpthread-1.dll  (threads POSIX pour Windows)
+  - Qt5Core.dll           (framework applicatif Qt5)
 
-**Étape 5 — Chaînes + imports réseau de `Env.exe`**
-→ `screens/05-env-strings-imports.png`
-```
-strings -a Env.exe
-python -c "import pefile; ... imports ..."
-```
-Chaînes : `c:\WindSyst\log.txt`, `smtp.laposte.net`,
-`aaaaaaaaaaaa@laposte.net`, mot de passe `z98tmFrance`,
-`aaaaaaaaaaaa@gmail.com`, commandes `AUTH LOGIN`, `MAIL FROM:<`, `DATA`...
-Import clé : `QSslSocket::connectToHostEncrypted` (SMTP chiffré).
+Sections PE repérées (structure standard MinGW) :
+  .text  .data  .rdata  .eh_frame  .bss  .idata  .CRT  .tls
+  (pas de section custom/packée visible dans ce dump de strings)
 
-**Étape 6 — Désassembler `Env.exe`** (fonction d'envoi `0x4016b0`)
-→ `screens/06-env-disasm-exfiltration.png`
-```
-python -c "
-import pefile, capstone
-pe = pefile.PE('Env.exe'); img = pe.get_memory_mapped_image()
-base = pe.OPTIONAL_HEADER.ImageBase
-md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-for i in md.disasm(img[0x4016b0-base:0x4016b0-base+400], 0x4016b0):
-    print(hex(i.address), i.mnemonic, i.op_str)
-"
-```
-La fonction ouvre `c:\WindSyst\log.txt`, le lit, crée un objet `Smtp` avec
-serveur / login / mot de passe **écrits en dur**, port `465`, puis appelle
-`sendMail(from=laposte, to=aaaaaaaaaaaa@gmail.com, sujet="aaaaa !", corps=log)`.
-Cette fonction est appelée depuis le constructeur de la fenêtre → **envoi
-automatique dès le lancement, sans clic**.
+Chaîne décodée obfusquée :
+  "[DEL]"  -> probablement construite/assemblée en mémoire au
+              lieu d'être stockée en clair
 
----
+Chaîne suspecte notable :
+  "par le magniquime Hafnium !"
+  -> référence probable à l'acteur de menace "Hafnium"
+     (APT associé aux exploitations Microsoft Exchange),
+     possible signature de campagne ou marquage de l'auteur
 
-## Ce que fait le malware (scénario)
+------------------------------------------------------------------
+3. INDICATEURS DE COMPROMISSION (IOC)
+------------------------------------------------------------------
 
-1. La victime lance `Res.exe` (depuis la clé USB — cf. US9/US10).
-2. `Res.exe` cache sa fenêtre, crée `C:\WindSyst\` et s'y recopie avec
-   `Env.exe` et les DLL Qt.
-3. Il ajoute 2 entrées dans `HKCU\...\CurrentVersion\Run` (`Res` et `Env`) :
-   les 2 programmes se relancent à **chaque ouverture de session**.
-4. Un thread lit le clavier en boucle (`GetAsyncKeyState`, toutes les 10 ms)
-   et écrit chaque touche dans `C:\WindSyst\log.txt`.
-5. `Env.exe` lit ce fichier et l'**envoie par e-mail** (SMTP + TLS via
-   `smtp.laposte.net:465`) vers `aaaaaaaaaaaa@gmail.com`, la boîte de l'attaquant.
+Dossier de dépôt :
+  C:\WindSyst\
 
----
+Fichiers déposés dans C:\WindSyst\ :
+  - Res.exe
+  - Env.exe
+  - libgcc_s_dw2-1.dll
+  - libstdc++-6.dll
+  - libwinpthread-1.dll
+  - Qt5Cored.dll
+  - Qt5Widgets.dll
+  - Qt5Network.dll
+  - Qt5Gui.dll
+  - Qt5Core.dll
 
-## Fonctions principales identifiées
+Sous-dossier plateforme Qt : C:\WindSyst\platforms\
+  - qminimal.dll
+  - qoffscreen.dll
+  - qwindows.dll
 
-| Programme | Adresse | Fonction | Ce qu'elle fait |
-|---|---|---|---|
-| Res.exe | `0x4035aa` | `main` | lance le thread keylogger + l'installation |
-| Res.exe | `0x401640` | keylogger | boucle clavier → écrit `log.txt` |
-| Res.exe | `0x401aa0` | installation | cache console, `XCOPY` vers `C:\WindSyst`, clés Run |
-| Env.exe | `0x401e30` | constructeur fenêtre | appelle l'exfiltration automatiquement |
-| Env.exe | `0x4016b0` | exfiltration | lit `log.txt`, prépare l'e-mail |
-| Env.exe | `0x402070` | `Smtp::sendMail` | dialogue SMTP (`EHLO`,`AUTH LOGIN`,`DATA`,`QUIT`) |
+Clé de persistance (registre) :
+  HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
 
-Note : binaires **non packés** (entropie ~5,9), pas de chiffrement, pas
-d'anti-debug : lecture directe possible.
+Valeurs de Run probables :
+  - C:\WindSyst\Res.exe
+  - C:\WindSyst\Env.exe
 
----
+Fichier de log :
+  c:\WindSyst\log.txt
 
-## Indicateurs de compromission (IOC)
+Chemin d'origine (poste d'analyse, PAS un IOC réseau) :
+  C:\Users\vboxuser\Downloads\Malware (3)\VIRUS\Res.exe
 
-**Fichiers / dossiers**
-- `C:\WindSyst\` (+ `log.txt`, `Res.exe`, `Env.exe`, `platforms\`, DLL Qt)
+Chaîne de signature/marquage :
+  Hafnium
 
-**Registre (démarrage automatique)**
-- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Res` = `C:\WindSyst\Res.exe`
-- `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Env` = `C:\WindSyst\Env.exe`
+------------------------------------------------------------------
+4. SYNTHESE COMPORTEMENTALE
+------------------------------------------------------------------
 
-**Réseau / e-mail**
-- Serveur : `smtp.laposte.net:465` (TLS)
-- Émetteur : `aaaaaaaaaaaa@laposte.net` / mot de passe `z98tmFrance`
-- Destinataire (attaquant) : `aaaaaaaaaaaa@gmail.com`
-- Sujet : `aaaaa !`
+Le binaire copie un ensemble de DLL Qt5 ainsi que deux exécutables
+(Res.exe et Env.exe) dans le répertoire C:\WindSyst, s'installe en
+persistance via la clé de registre Run (HKCU), journalise son
+activité dans log.txt, et embarque des capacités de capture
+clavier (GetAsyncKeyState / GetKeyState).
 
-**Hachages SHA-256**
-- `Res.exe` : `49f091ade48890bfa22d2b455494be95e52392c478b67e10626222b6aee37e1e`
-- `Env.exe` : `e09ec2098363a129de143fdaf73ad6e2e61266fba3f638a25214af3a8bc8f2f2`
+Profil cohérent avec un DROPPER / STEALER doté d'un module
+KEYLOGGER, packagé avec une interface graphique Qt5 et compilé
+via la chaîne d'outils MinGW-w64.
 
-**Signatures texte (pour une règle YARA)**
-- `code par le magniquime Hafnium !`
-- `WindSyst`, `z98tmFrance`, `aaaaaaaaaaaa@gmail.com`
+Recommandation : analyser également Env.exe et effectuer une
+analyse dynamique (sandbox) pour confirmer les communications
+réseau, la persistance effective, et les données exfiltrées.
 
-**Comportements**
-- fenêtre console masquée (`ShowWindow`)
-- processus enfants `cmd.exe /c mkdir` et `xcopy`
-- capture clavier permanente (`GetAsyncKeyState`)
-
----
-
-## MITRE ATT&CK (résumé)
-
-| Étape | Technique | ID |
-|---|---|---|
-| Capture clavier | Keylogging | T1056.001 |
-| Démarrage auto | Registry Run Keys | T1547.001 |
-| Commandes shell | Windows Command Shell | T1059.003 |
-| Fichier de collecte | Local Data Staging | T1074.001 |
-| Fenêtre cachée | Hidden Window | T1564.003 |
-| Envoi e-mail | Exfiltration Over Web/Alt Protocol | T1048 / T1567 |
-
----
-
-## Phrases prêtes pour le rapport
-
-- « L'analyse statique (sans exécution) a été menée avec `strings`, `pefile` et
-  le désassembleur `capstone`, sur un poste isolé. »
-- « `Res.exe` installe le malware dans `C:\WindSyst\` (commandes `XCOPY` via
-  `system()`), se met en démarrage automatique en écrivant les valeurs `Res` et
-  `Env` sous `HKCU\...\CurrentVersion\Run`, puis enregistre les frappes clavier
-  (`GetAsyncKeyState`) dans `C:\WindSyst\log.txt`. »
-- « `Env.exe` lit ce fichier et l'envoie automatiquement par e-mail (SMTP sur
-  TLS, `smtp.laposte.net:465`) depuis le compte `aaaaaaaaaaaa@laposte.net`
-  (identifiants codés en dur dans le binaire) vers `aaaaaaaaaaaa@gmail.com`. »
-- « Les binaires ne sont ni packés ni chiffrés ; le désassemblage montre
-  directement les fonctions d'installation (`0x401aa0`), de keylogging
-  (`0x401640`) et d'exfiltration (`0x4016b0`, `0x402070`). »
-- « Ces constats confirment le verdict VirusTotal de l'US2 : trojan-spy /
-  keylogger avec exfiltration de données. »
-
----
+==================================================================
+Fin du rapport
+==================================================================
