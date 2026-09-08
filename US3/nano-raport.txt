@@ -49,8 +49,16 @@ dans le registre), `std::thread` (tâche de fond).
 **Étape 4 — Désassembler `Res.exe`** pour confirmer la persistance
 → `screens/04-res-disasm-persistance.png`
 ```
-python disasm.py Res.exe      # pefile + capstone, résout les appels d'API
+python -c "
+import pefile, capstone
+pe = pefile.PE('Res.exe'); img = pe.get_memory_mapped_image()
+base = pe.OPTIONAL_HEADER.ImageBase
+md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+for i in md.disasm(img[0x401aa0-base:0x401aa0-base+220], 0x401aa0):
+    print(hex(i.address), i.mnemonic, i.op_str)
+"
 ```
+(commande unique en ligne, pas de script externe : `pefile` lit le PE, `capstone` désassemble)
 Dans la fonction `0x401aa0` on lit, dans l'ordre : cacher la console →
 `system("mkdir c:\WindSyst")` → série de `system("XCOPY ... c:\WindSyst")` →
 `QSettings(...Run...).setValue("Res","C:\WindSyst\Res.exe")` et
@@ -70,7 +78,14 @@ Import clé : `QSslSocket::connectToHostEncrypted` (SMTP chiffré).
 **Étape 6 — Désassembler `Env.exe`** (fonction d'envoi `0x4016b0`)
 → `screens/06-env-disasm-exfiltration.png`
 ```
-python disasm.py Env.exe
+python -c "
+import pefile, capstone
+pe = pefile.PE('Env.exe'); img = pe.get_memory_mapped_image()
+base = pe.OPTIONAL_HEADER.ImageBase
+md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+for i in md.disasm(img[0x4016b0-base:0x4016b0-base+400], 0x4016b0):
+    print(hex(i.address), i.mnemonic, i.op_str)
+"
 ```
 La fonction ouvre `c:\WindSyst\log.txt`, le lit, crée un objet `Smtp` avec
 serveur / login / mot de passe **écrits en dur**, port `465`, puis appelle
