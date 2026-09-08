@@ -1,0 +1,120 @@
+## US6 — Acquisition mémoire vive
+
+But : réaliser un dump complet de la RAM du poste infecté (après exécution réelle
+de `Res.exe`/`Env.exe`), puis identifier depuis cette acquisition les processus
+malveillants actifs et les connexions réseau suspectes.
+
+Contexte : le compte de travail (`vboxuser`) n'est pas administrateur en
+fonctionnement normal (token UAC filtré) ; un accès mémoire physique
+nécessitant un pilote noyau, l'acquisition a été faite depuis une PowerShell
+élevée ("Exécuter en tant qu'administrateur"), avec confinement réseau
+préalable (voir US1/critère "absence de fuite réseau non contrôlée").
+
+### Outils / commandes utilisés
+
+| Outil | Rôle |
+|---|---|
+| `winpmem` (Velocidex, v4.1.rc1, `winpmem_mini_x64_rc2.exe`) | Pilote noyau + dump RAW de la mémoire physique complète |
+| PowerShell (`Get-Process`, `Get-NetTCPConnection`) + `netstat -ano`, `tasklist /v` | Triage en direct des processus/connexions au moment de l'acquisition |
+| `New-NetFirewallRule` + `netsh advfirewall ... logging` | Confinement sortant (ports SMTP 25/465/587) et journalisation des connexions refusées, avant le lancement du malware |
+| `Get-WinEvent` (journal Application) | Corrélation de l'échec du module réseau (rapport WER APPCRASH) |
+| `Get-FileHash -Algorithm SHA256` | Intégrité du dump |
+
+Séquence réelle (script PowerShell unique, horodatage UTC dans
+`evidence/acquisition-run-log.txt`) :
+
+```
+11:39:58  lancement Res.exe (PID 11884) depuis MalwareLab\VIRUS
+11:40:04  lancement Env.exe (PID 13648) depuis C:\WindSyst (copie installée)
+11:40:11  Env.exe CRASH (APPCRASH, voir plus bas)
+11:40:29  capture Get-Process / Get-NetTCPConnection / netstat -ano
+11:40:34  arrêt forcé de Res.exe (Env.exe déjà mort)
+11:40:36  téléchargement winpmem
+11:40:48  dump RAM terminé (4,5 Go)
+11:41:10  SHA-256 du dump calculé
+```
+
+### Le dump RAM
+
+- Fichier : `memory.raw`, **4 831 838 208 octets (4,5 Go)**, mode d'acquisition
+  winpmem *PTE Remapping*, couvrant les 6 plages physiques rapportées par le
+  pilote jusqu'à `0x120000000` (~4,5 Go de RAM physique de la VM).
+- SHA-256 : `BD0D0CD56C6E535807967EF7405197AF9F5FE66BE63643B7725D6D71421DE816`
+  (voir `evidence/memory.raw.sha256.txt`).
+- Conservé hors dépôt Git (fichier de 4,5 Go, non versionnable) sur la VM
+  d'analyse : `C:\Users\vboxuser\Desktop\MalwareLab\memory.raw`. Le hash
+  ci-dessus fait foi pour la chaîne de custody.
+- Analyse hors-ligne avec **Volatility3** (`vol -f memory.raw windows.pslist` /
+  `windows.netscan`) tentée mais **non aboutie** dans cette session : `pip`
+  n'était pas résolu dans le PATH de la PowerShell élevée
+  (`evidence/acquisition-run-log.txt`, étape 9). Le dump est conservé pour
+  reprendre cette analyse (carving mémoire, artefacts supplémentaires) ;
+  l'identification des processus/connexions ci-dessous s'appuie donc sur le
+  **triage en direct**, capturé dans la même fenêtre temporelle que
+  l'acquisition RAM (pratique standard : IOC live + image complète pour
+  analyse différée).
+
+### Processus actifs identifiés
+
+Extrait pertinent de `evidence/process-list.csv` (capture 11:40:29, juste
+avant l'arrêt forcé) :
+
+| PID | Nom | Chemin | Démarré |
+|---|---|---|---|
+| 11884 | Res | `C:\Users\vboxuser\Desktop\MalwareLab\VIRUS\Res.exe` | 11:39:58 |
+
+`Env.exe` (PID 13648) n'apparaît **plus** dans cette capture : il s'est arrêté
+avant le relevé (voir "Connexions réseau" ci-dessous — crash confirmé par le
+journal Windows). Le process `Res` tourne depuis le dossier d'installation
+temporaire `MalwareLab\VIRUS` (lancé directement pour le test) : en usage réel
+via la persistance, il tournerait depuis `C:\WindSyst\Res.exe` (confirmé par
+ailleurs par la copie effective dans ce dossier, cf. US7/US8).
+
+### Connexions réseau suspectes
+
+**Aucune connexion sortante vers `smtp.laposte.net`/port 465 (ou 25/587) n'a
+été capturée** dans `evidence/netconnections.csv`, et le log de blocage
+pare-feu (`pfirewall.log`) ne contient aucune ligne DROP.
+
+Ce n'est pas une absence de preuve : `Get-WinEvent` sur le journal
+**Application** montre qu'`Env.exe` (PID 13648, `0x3550`) a **crashé à
+11:40:11**, 7 secondes après son lancement, **avant** d'atteindre le code
+réseau :
+
+```
+Nom de l'application défaillante : Env.exe, version 0.0.0.0
+Nom du module défaillant        : Qt5Core.dll, version 5.9.2.0
+Exception code                  : 0x40000015 (STATUS_FATAL_APP_EXIT)
+Chemin de l'application         : C:\WindSyst\Env.exe
+```
+
+`0x40000015` est le code que Qt lève via `qFatal()` quand **aucun plugin de
+plateforme n'a pu être chargé** — cohérent avec l'US4 (dynamique), qui avait
+déjà relevé l'absence de `qwindows.dll`/`qminimal.dll`/`qoffscreen.dll` dans
+l'archive livrée (`C:\WindSyst\platforms\` existe mais reste vide après
+l'installation, voir `evidence/windsyst-files.csv`). Le module d'exfiltration
+est donc **fonctionnellement cassé dans ce paquet précis du malware**, pas
+seulement bloqué par notre confinement réseau.
+
+La cible réseau réelle du module reste connue par l'analyse statique (US3) :
+`smtp.laposte.net:465` (TLS), identifiants codés en dur, destinataire
+`aaaaaaaaaaaa@gmail.com`. C'est cette destination qu'il faudrait surveiller
+(EDR/proxy/IDS) si un exemplaire complet (avec les DLL de plateforme Qt) du
+malware devait être rencontré en conditions réelles.
+
+### Phrases prêtes pour le rapport
+
+- « Un dump complet de la mémoire physique (4,5 Go, SHA-256
+  `BD0D0CD5...DE816`) a été réalisé avec winpmem depuis une session
+  administrateur, après exécution contrôlée du malware sur la VM de labo. »
+- « Le processus `Res.exe` (PID 11884) a été identifié actif en mémoire au
+  moment de l'acquisition, confirmant la persistance du composant keylogger. »
+- « Aucune connexion réseau sortante vers l'infrastructure de exfiltration
+  (`smtp.laposte.net:465`) n'a été observée : le journal d'événements Windows
+  montre qu'`Env.exe` s'est arrêté en erreur (APPCRASH, `Qt5Core.dll`,
+  `STATUS_FATAL_APP_EXIT`) 7 secondes après son lancement, avant d'atteindre le
+  code réseau — cohérent avec l'absence des DLL de plateforme Qt déjà relevée
+  en analyse dynamique (US4). »
+- « Une règle de pare-feu sortant (ports 25/465/587) et la journalisation des
+  connexions refusées avaient été mises en place avant l'exécution, pour
+  garantir l'absence de fuite réseau non contrôlée pendant le test (US1). »

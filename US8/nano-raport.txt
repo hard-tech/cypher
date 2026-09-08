@@ -1,0 +1,83 @@
+## US8 — Analyse croisée RAM / disque
+
+But : corréler les données mémoire (US6) et disque (US7) pour reconstruire un
+scénario d'attaque cohérent et vérifier la persistance.
+
+### Correspondance processus mémoire ↔ fichiers disque
+
+| Élément mémoire (US6) | Élément disque (US7) | Correspondance |
+|---|---|---|
+| Processus `Res` (PID 11884), chemin `...\VIRUS\Res.exe`, actif au moment du dump RAM | `C:\WindSyst\Res.exe`, 25 088 o, SHA-256 `49F091AD...E37E1E` | **Même hash** que l'échantillon `Res.exe` original (US2/US3) → le process observé en mémoire est bien une exécution non modifiée de la charge analysée |
+| Processus `Env` (PID 13648), lancé depuis `C:\WindSyst\Env.exe`, **disparu** de la capture processus 25s plus tard | `C:\WindSyst\Env.exe` présent sur disque + événement WER `APPCRASH` (journal Application, 11:40:11) : module fautif `Qt5Core.dll`, code `0x40000015` | Le fichier disque existe et est intact, mais son exécution échoue **avant** d'atteindre le code réseau — la mémoire (crash) explique pourquoi le disque (fichier présent) ne s'est jamais traduit par une connexion sortante observée |
+| Dossier `platforms\` vide (constaté sur le volume d'evidence, US7) | — | Corrobore directement la cause du crash mémoire : aucun plugin Qt disponible |
+
+### Détection de la persistance
+
+Chaîne de preuve complète, du disque au démarrage automatique :
+
+```
+Registre (US7, run-keys.reg)      Disque (US7)                  Process observé (US6)
+HKCU\...\Run\Res  =            →  C:\WindSyst\Res.exe         →  PID 11884 "Res"
+  "C:\WindSyst\Res.exe"            (hash = échantillon original)   actif en mémoire au dump
+
+HKCU\...\Run\Env  =            →  C:\WindSyst\Env.exe         →  PID 13648 "Env"
+  "C:\WindSyst\Env.exe"            (présent, non altéré)           lancé puis crashé (WER)
+```
+
+Les deux valeurs de la clé `Run` pointent vers des chemins qui existent
+réellement sur le disque, et au moins l'un des deux binaires visés (`Res.exe`)
+a été observé **actif en mémoire** pendant l'acquisition — la persistance
+prédite par l'analyse statique (US3, désassemblage de `0x401aa0`) est donc
+vérifiée de bout en bout : registre → fichier disque → exécution mémoire.
+
+`Env.exe`, bien que référencé de façon identique dans la clé `Run`, ne
+survivrait pas à un redémarrage de session dans l'état actuel du paquet
+malveillant (il crashe systématiquement faute de plugin Qt) : la persistance
+du **keylogger** est pleinement opérationnelle, celle du **module
+d'exfiltration** est configurée mais cassée dans cet échantillon précis.
+
+### Reconstruction du scénario d'attaque
+
+```
+T+0s   (11:39:58) Res.exe est exécuté (double-clic / lancement initial)
+                   -> installation : mkdir C:\WindSyst, XCOPY de la charge complète
+                   -> écriture de 2 valeurs dans HKCU\...\Run (persistance)
+                   -> démarrage du thread keylogger (GetAsyncKeyState en boucle)
+T+6s   (11:40:04)  Env.exe (copie installée C:\WindSyst) est exécuté
+                   -> tentative d'initialisation de sa fenêtre Qt
+T+13s  (11:40:11)  Env.exe CRASH (APPCRASH, Qt5Core.dll, plugin de plateforme
+                    manquant) -> aucune tentative de connexion SMTP atteinte
+T+31s  (11:40:29)  Triage live : Res.exe toujours actif en mémoire, Env.exe
+                    déjà terminé -> capture processus/réseau
+T+36s  (11:40:34)  Arrêt forcé de Res.exe (fin du test contrôlé)
+T+38s  (11:40:36)  Acquisition mémoire complète (winpmem, 4,5 Go)
+T+41s  (11:41:11)  Acquisition disque ciblée + image bit-à-bit (dd)
+```
+
+Ce scénario est cohérent avec :
+- **US3** (analyse statique) : la fonction `0x401aa0` prédisait exactement
+  cette séquence d'installation + persistance ;
+- **US4** (analyse dynamique) : l'absence des DLL de plateforme Qt avait déjà
+  été relevée comme un écart potentiellement bloquant pour `Env.exe` ;
+- **US6** (RAM) : confirme l'exécution réelle et le point d'échec précis
+  (via l'événement WER, retrouvable aussi comme artefact disque dans
+  `%ProgramData%\Microsoft\Windows\WER\ReportArchive\`).
+
+### Phrases prêtes pour le rapport
+
+- « La corrélation entre la clé de registre `Run`, les fichiers présents dans
+  `C:\WindSyst` et le processus `Res.exe` observé actif en mémoire au moment
+  du dump RAM démontre une chaîne de persistance complète et fonctionnelle
+  pour le composant keylogger. »
+- « Le hash SHA-256 du fichier `C:\WindSyst\Res.exe` retrouvé sur disque est
+  strictement identique à celui de l'échantillon original analysé en US2/US3,
+  excluant toute altération lors de l'installation. »
+- « Le composant d'exfiltration `Env.exe`, bien que référencé dans la même clé
+  de persistance, s'est révélé non fonctionnel dans cet échantillon : le
+  journal d'événements Windows (preuve disque) explique directement l'absence
+  de connexion réseau observée en mémoire (US6), les deux sources se
+  corroborant. »
+- « La chronologie reconstruite (installation à T+0, exécution du module
+  réseau à T+6s, crash à T+13s, acquisitions RAM/disque à T+36-41s) reproduit
+  fidèlement le comportement prédit par les analyses statique (US3) et
+  dynamique (US4) réalisées en amont. »

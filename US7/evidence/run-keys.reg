@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run]
+"OneDrive"="\"C:\\Users\\vboxuser\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe\" /background"
+"MicrosoftEdgeAutoLaunch_181C8C6F62941D485E9DA88A14DF8CD2"="\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" --no-startup-window --win-session-start"
+"Res"="C:\\WindSyst\\Res.exe"
+"Env"="C:\\WindSyst\\Env.exe"
+
