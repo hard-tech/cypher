@@ -1,0 +1,15 @@
+Timestamp_UTC,Timestamp_Local,Component,SourceEvidence,EventDescription,KillChainPhase
+2026-09-08 09:39:52,2026-09-08 11:39:52,Script Labo,acquisition-run-log.txt,Démarrage du protocole de test contrôlé et confinement réseau (blocage ports SMTP 25/465/587),Pré-infection / Lab
+2026-09-08 09:39:55,2026-09-08 11:39:55,Malware.zip,US2/US3,Extraction de l'archive malveillante dans MalwareLab\VIRUS (SHA-256 a1af8eeaa7fda...),Livraison (Delivery)
+2026-09-08 09:39:58,2026-09-08 11:39:58,Res.exe (PID 11884),US6 windows.pstree.txt / US4,Exécution initiale de Res.exe depuis MalwareLab\VIRUS par powershell.exe (PID 1020),Exploitation / Exécution
+2026-09-08 09:39:59,2026-09-08 11:39:59,Dropper Res.exe,US7 windsyst-files.csv / US4,Création du répertoire C:\WindSyst et du sous-dossier platforms\ (vide),Installation
+2026-09-08 09:39:59,2026-09-08 11:39:59,Dropper Res.exe,US7 hash-manifest.csv / US4,Copie XCOPY des binaires Res.exe, Env.exe et des DLLs MinGW/Qt5 dans C:\WindSyst,Installation
+2026-09-08 09:40:04,2026-09-08 11:40:04,reg.exe (PID 4572),US6 windows.psscan.txt / US7 run-keys.reg,Inscription de la persistance HKCU\...\Run pour Res (Res.exe) et Env (Env.exe),Persistance
+2026-09-08 09:40:04,2026-09-08 11:40:04,Res.exe (PID 11884),US3 / US6,Démarrage de la capture clavier (GetAsyncKeyState) et écriture locale dans log.txt,Action sur Objectif (Keylogger)
+2026-09-08 09:40:04,2026-09-08 11:40:04,Env.exe (PID 13648),US6 windows.pstree.txt,Lancement du module d'exfiltration Env.exe depuis C:\WindSyst\Env.exe,Exécution (Exfiltration Module)
+2026-09-08 09:40:11,2026-09-08 11:40:11,Env.exe,Journal Application WER APPCRASH,Crash de Env.exe (Qt5Core.dll - code 0x40000015 STATUS_FATAL_APP_EXIT - platforms vide),Incident d'exécution
+2026-09-08 09:40:13,2026-09-08 11:40:13,Env.exe (PID 13648),US6 windows.pstree.txt (ExitTime),Terminaison définitive du processus Env.exe en mémoire (durée de vie totale : 9 secondes),Incident d'exécution
+2026-09-08 09:40:29,2026-09-08 11:40:29,SOC Triage,US6 process-list.csv / netconnections.csv,Triage en direct : Res.exe actif, Env.exe absent, aucune connexion SMTP sortante détectée,Détection / Triage
+2026-09-08 09:40:34,2026-09-08 11:40:34,Res.exe (PID 11884),US6 windows.pstree.txt (ExitTime),Arrêt du processus Res.exe par l'analyste,Endiguement
+2026-09-08 09:40:36,2026-09-08 11:40:36,winpmem.exe (PID 13568),US6 windows.pstree.txt / memory.raw,Acquisition mémoire vive complète (4.5 Go, SHA-256 BD0D0CD5...),Acquisition Forensic RAM
+2026-09-08 09:41:11,2026-09-08 11:41:11,diskpart / robocopy / dd,US7 image-integrity.txt / hash-manifest.csv,Acquisition disque ciblée et création de l'image bit-à-bit (VHD/DD, SHA-256 5B9F6953...),Acquisition Forensic Disque
