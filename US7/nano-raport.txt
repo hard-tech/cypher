@@ -1,101 +1,32 @@
 ## US7 — Acquisition du disque dur
 
-But : réaliser une image disque forensique des traces laissées par le malware
-sur le disque, pour analyser les fichiers déposés et la persistance.
-
-### Pourquoi pas une image bit-à-bit du disque `C:` entier
-
-Contrainte matérielle constatée sur la VM de labo (documentée avant d'agir) :
-- `C:` fait ~78,7 Go (37,8 Go utilisés + 40,9 Go libres) → il n'y a pas assez
-  d'espace libre pour y loger une duplication bit-à-bit de lui-même.
-- Le volume est le disque système **monté et actif** (celui depuis lequel la VM
-  tourne) : le dupliquer "à chaud" sans bloqueur d'écriture matériel n'est de
-  toute façon pas une acquisition forensique valide (le volume continue de
-  changer pendant la copie).
-
-Dans un cas réel, la bonne méthode serait un disque externe dédié +
-bloqueur d'écriture matériel, ou un boot sur média forensique (ex. Tails/CAINE)
-en dehors de l'OS compromis. Ici, faute de ce matériel, l'acquisition a été
-recentrée sur un **périmètre défendable et complet** : les artefacts
-effectivement déposés par le malware (`C:\WindSyst\`, clé de registre `Run`),
-copiés et **hashés un par un**, puis reconditionnés dans un **volume d'evidence
-dédié qui, lui, a été imagé bit-à-bit réellement** — la technique
-(`dd`, vérification d'intégrité SHA-256 source = image) est identique à celle
-utilisée sur un disque physique complet, seul le périmètre diffère.
-
-### Outils utilisés
-
-| Outil | Rôle |
-|---|---|
-| `robocopy /E /COPY:DAT` | Copie forensique (métadonnées + horodatages préservés) de `C:\WindSyst` |
-| `reg export` | Export de la clé `HKCU\...\CurrentVersion\Run` (persistance) |
-| `Get-FileHash -Algorithm SHA256` | Hash de chaque fichier copié (manifeste d'intégrité) |
-| `diskpart` (script non-interactif) | Création d'un volume d'evidence dédié (VHD fixe 200 Mo, NTFS) |
-| `dd` (Git for Windows, `usr\bin\dd.exe`) | Image bit-à-bit du VHD → `.img` |
-| `Get-FileHash` (comparaison source/image) | Preuve d'intégrité bit-à-bit |
-
-### Image disque bit-à-bit réalisée
-
+### Étapes / commandes
 ```
-diskpart : create vdisk file=evidence_volume.vhd maximum=200 type=fixed
-           attach vdisk / create partition primary / format fs=ntfs / assign Z:
-robocopy : copie de C:\WindSyst + run-keys.reg vers Z:\
-diskpart : detach vdisk
+robocopy C:\WindSyst ... /E /COPY:DAT        # copie forensique (métadonnées préservées)
+reg export HKCU\...\CurrentVersion\Run run-keys.reg
+Get-FileHash -Algorithm SHA256 ...           # manifeste d'intégrité par fichier
+diskpart: create vdisk evidence_volume.vhd maximum=200 type=fixed
+          attach / create partition / format fs=ntfs / assign Z:
+robocopy (fichiers ci-dessus) -> Z:\
+diskpart: detach vdisk
 dd if=evidence_volume.vhd of=evidence_volume.dd.img bs=1M
+Get-FileHash evidence_volume.vhd, evidence_volume.dd.img   # comparaison bit-à-bit
 ```
+(pas le disque `C:` entier : volume système actif, 78,7 Go, pas de bloqueur d'écriture → périmètre limité aux artefacts déposés par le malware, réellement imagés bit-à-bit)
 
-Résultat (`evidence/image-integrity.txt`) :
+### Résultats
+- Image bit-à-bit : `evidence_volume.vhd` = `evidence_volume.dd.img`, SHA-256 identique `5B9F6953...EE422` (`evidence/image-integrity.txt`)
+- Fichiers suspects (`C:\WindSyst\`, `evidence/windsyst-files.csv` + `hash-manifest.csv`) :
 
-| Fichier | SHA-256 |
+| Fichier | Remarque |
 |---|---|
-| `evidence_volume.vhd` (source) | `5B9F6953643A9C2FE01F03DCF8F96E7B40D026C25CDE04006EB54DF8001EE422` |
-| `evidence_volume.dd.img` (image) | `5B9F6953643A9C2FE01F03DCF8F96E7B40D026C25CDE04006EB54DF8001EE422` |
-| **Correspondance** | **identique — copie bit-à-bit vérifiée** |
+| `Res.exe` (SHA-256 `49F091AD...E37E1E`) | Identique à l'échantillon original US2/US3 |
+| `Env.exe` | Copié mais non fonctionnel (crash Qt, cf. US6) |
+| `platforms\` | Vide — DLL de plateforme Qt manquantes |
+| DLL Qt5 / MinGW | Runtime légitime embarqué |
 
-Les deux fichiers (~200 Mo chacun) sont conservés hors dépôt Git sur la VM
-d'analyse (`C:\Users\vboxuser\Desktop\MalwareLab\DiskEvidence\`) ; seuls les
-manifestes/hash sont versionnés ici.
-
-### Fichiers suspects identifiés
-
-`evidence/windsyst-files.csv` (snapshot post-installation de `C:\WindSyst`) et
-`evidence/hash-manifest.csv` (hash de la copie forensique) :
-
-| Fichier | Taille | SHA-256 | Remarque |
-|---|---|---|---|
-| `Res.exe` | 25 088 o | `49F091ADE48890BFA22D2B455494BE95E52392C478B67E10626222B6AEE37E1E` | **Identique** au hash de l'échantillon original analysé en US2/US3 → confirme qu'il s'agit bien de la même charge, simplement recopiée par le dropper |
-| `Env.exe` | 53 248 o | (voir US2/US3, `e09ec209...`) | Copié mais **non fonctionnel** dans ce paquet (crash faute de plugin Qt, cf. US6) |
-| `platforms\` | — dossier vide — | — | Preuve que les DLL de plateforme Qt (`qwindows.dll` etc.) manquent réellement dans l'archive livrée |
-| `Qt5Core.dll`, `Qt5Gui.dll`, `Qt5Network.dll`, `Qt5Widgets.dll` | 1,8–6,3 Mo | — | Runtime Qt légitime, simplement embarqué |
-| `libgcc_s_dw2-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll` | 79 Ko–1,5 Mo | — | Runtime MinGW légitime |
-
-Persistance confirmée dans le registre exporté (`evidence/run-keys.reg`) :
-
+- Persistance (`evidence/run-keys.reg`) :
 ```
-[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run]
-"Res"="C:\WindSyst\Res.exe"
-"Env"="C:\WindSyst\Env.exe"
+HKCU\...\Run\Res = C:\WindSyst\Res.exe
+HKCU\...\Run\Env = C:\WindSyst\Env.exe
 ```
-
-→ exactement les deux valeurs prédites par le désassemblage statique en US3
-(fonction `0x401aa0`), maintenant **observées réellement écrites** sur un
-poste où le malware a tourné.
-
-### Phrases prêtes pour le rapport
-
-- « Faute de bloqueur d'écriture matériel et d'espace suffisant pour dupliquer
-  le disque système en cours d'exécution (78,7 Go, 40,9 Go libres),
-  l'acquisition a porté sur les artefacts déposés par le malware
-  (`C:\WindSyst`, clé de registre Run), copiés en préservant les
-  métadonnées puis hashés individuellement (SHA-256). »
-- « Ce jeu d'artefacts a été reconditionné dans un volume d'evidence dédié
-  (VHD NTFS), lui-même imagé bit-à-bit avec `dd` ; la comparaison SHA-256
-  entre le volume source et l'image (`5B9F6953...EE422` des deux côtés)
-  confirme une copie bit-à-bit intègre. »
-- « Le fichier `C:\WindSyst\Res.exe` a un hash SHA-256 identique à
-  l'échantillon `Res.exe` original analysé en US2/US3, prouvant que le
-  dropper recopie la charge malveillante sans altération. »
-- « L'export de la clé `HKCU\...\CurrentVersion\Run` confirme la persistance
-  prédite par l'analyse statique : deux valeurs `Res` et `Env` pointant vers
-  `C:\WindSyst`, garantissant le redémarrage du malware à chaque ouverture de
-  session. »
