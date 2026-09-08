@@ -1,0 +1,144 @@
+==================================================================
+RAPPORT D'ANALYSE DYNAMIQUE - Res.exe
+US 4 : Observation du comportement à l'exécution
+==================================================================
+
+Source des données : log de console / log.txt capturé lors de
+                      l'exécution du binaire en environnement de
+                      test (VM d'analyse)
+
+------------------------------------------------------------------
+LOG BRUT
+------------------------------------------------------------------
+
+codé par le magniquime Hafnium !
+Un sous-répertoire ou un fichier c:\WindSyst existe déjà.
+C:libgcc_s_dw2-1.dll          -> 1 fichier(s) copié(s)
+C:libstdc++-6.dll             -> 1 fichier(s) copié(s)
+C:libwinpthread-1.dll         -> 1 fichier(s) copié(s)
+Qt5Cored.dll                  -> Fichier introuvable (0 copié)
+C:Res.exe                     -> 1 fichier(s) copié(s)
+Env.exe                       -> 1 fichier(s) copié(s)
+C:Qt5Widgets.dll              -> 1 fichier(s) copié(s)
+C:Qt5Network.dll              -> 1 fichier(s) copié(s)
+C:Qt5Gui.dll                  -> 1 fichier(s) copié(s)
+C:Qt5Core.dll                 -> 1 fichier(s) copié(s)
+qminimal.dll                  -> Fichier introuvable (0 copié)
+qoffscreen.dll                -> Fichier introuvable (0 copié)
+qwindows.dll                  -> Fichier introuvable (0 copié)
+
+------------------------------------------------------------------
+1. MODIFICATIONS SYSTEME OBSERVEES
+------------------------------------------------------------------
+
+- Tentative de création du répertoire C:\WindSyst
+    Résultat : répertoire déjà existant sur ce poste de test
+    (message "Un sous-répertoire ou un fichier c:\WindSyst existe
+    déjà.") -> confirme que le malware tente systématiquement de
+    (re)créer ce dossier de dépôt à chaque exécution.
+
+- Le message de signature "codé par le magniquime Hafnium !" est
+  affiché/journalisé au tout début de l'exécution -> confirme que
+  la chaîne statique repérée dans FLOSS est bien utilisée comme
+  bannière de démarrage (print console et/ou écriture log.txt).
+
+- Aucune autre modification système (registre, services, tâches
+  planifiées) n'a pu être confirmée avec ce seul log : la copie
+  vers la clé Run (HKCU\...\Run) identifiée en analyse statique
+  n'est PAS visible ici -> nécessite une capture Regshot/
+  Process Monitor dédiée au registre pour confirmation.
+
+------------------------------------------------------------------
+2. ACTIVITE RESEAU IDENTIFIEE
+------------------------------------------------------------------
+
+- AUCUNE activité réseau n'apparaît dans ce log (celui-ci ne
+  couvre que les opérations de copie de fichiers).
+- Le binaire embarque Qt5Network.dll (copié avec succès vers
+  C:\WindSyst), ce qui indique une CAPACITE réseau probable côté
+  code, mais NON CONFIRMEE par une communication observée ici.
+- Recommandation : capturer le trafic avec Wireshark / un proxy
+  d'interception (ex. Fiddler, INetSim) pendant l'exécution pour
+  vérifier tentatives de connexion (C2, exfiltration, téléchargement
+  de composants manquants comme Env.exe ou les DLL Qt platform).
+
+------------------------------------------------------------------
+3. CREATION DE FICHIERS / PROCESSUS DETECTEE
+------------------------------------------------------------------
+
+Fichiers copiés avec succès vers C:\WindSyst :
+  - libgcc_s_dw2-1.dll
+  - libstdc++-6.dll
+  - libwinpthread-1.dll
+  - Res.exe
+  - Qt5Widgets.dll
+  - Qt5Network.dll
+  - Qt5Gui.dll
+  - Qt5Core.dll
+
+Fichiers ATTENDUS mais INTROUVABLES à la source (donc NON copiés) :
+  - Qt5Cored.dll
+  - Env.exe
+  - qminimal.dll
+  - qoffscreen.dll
+  - qwindows.dll
+  (ces fichiers étaient absents du dossier d'exécution initial
+  lors de ce test -> le dropper s'appuie sur un paquet complet
+  de fichiers qui n'était pas totalement présent dans cet
+  environnement ; en conditions réelles d'infection, ces
+  fichiers seraient probablement embarqués/téléchargés)
+
+Processus détectés (inférence) :
+  - Le binaire Res.exe invoque une série de commandes shell
+    (mkdir, XCOPY) -> lancement de sous-processus cmd.exe /
+    xcopy.exe pour chaque opération de copie.
+  - Confirmation directe de la création de processus enfants
+    NON disponible dans ce log seul -> nécessite Process Monitor
+    ou Process Hacker pour observer l'arborescence des processus
+    (parent Res.exe -> enfants cmd.exe/xcopy.exe) et confirmer
+    si Res.exe et/ou Env.exe copiés sont eux-mêmes exécutés
+    ensuite (auto-relance depuis C:\WindSyst).
+
+------------------------------------------------------------------
+4. ECARTS / POINTS A APPROFONDIR
+------------------------------------------------------------------
+
+- Confirmer via Process Monitor : écriture effective de la clé
+  de registre HKCU\...\Run (persistance) - non visible dans ce
+  log texte.
+- Confirmer via capture réseau : toute tentative de connexion
+  sortante (Qt5Network étant présent).
+- Déterminer si Res.exe se relance automatiquement depuis
+  C:\WindSyst\Res.exe après la copie (comportement dropper
+  classique).
+- Identifier pourquoi Env.exe et les DLL de plateforme Qt
+  (qminimal/qoffscreen/qwindows) étaient absents - fichier
+  incomplet côté attaquant/testeur, ou dépendance téléchargée
+  séparément à un stade ultérieur.
+- Rechercher l'activité de capture clavier (GetAsyncKeyState /
+  GetKeyState identifiés en statique) - non observable via ce
+  log, nécessite un test comportemental ciblé (frappe clavier +
+  surveillance des accès disque/mémoire).
+
+------------------------------------------------------------------
+5. SYNTHESE
+------------------------------------------------------------------
+
+Ce log confirme partiellement le comportement prédit par
+l'analyse statique : le dropper crée bien le dossier
+C:\WindSyst et y copie ses composants (DLL runtime MinGW,
+DLL Qt5, exécutable Res.exe). L'exécution était toutefois
+incomplète dans cet environnement de test (Env.exe et les
+plugins de plateforme Qt manquants), ce qui a probablement
+limité le comportement observable (pas de fenêtre graphique
+fonctionnelle sans qwindows.dll, par exemple).
+
+Les critères "modifications registre" et "activité réseau"
+restent à confirmer par des outils de monitoring dédiés
+(Process Monitor / Regshot pour le registre, Wireshark pour
+le réseau) lors d'un nouveau test avec le jeu de fichiers
+complet.
+
+==================================================================
+Fin du rapport
+==================================================================
