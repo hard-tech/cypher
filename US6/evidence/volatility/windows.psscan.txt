@@ -35,7 +35,6 @@ PID	PPID	ImageFileName	Offset(V)	Threads	Handles	SessionId	Wow64	CreateTime	Exit
 4220	816	svchost.exe	0x968f1d804080	5	-	1	False	2026-09-08 08:53:27.000000 UTC	N/A	Disabled
 1968	816	svchost.exe	0x968f1d808080	10	-	0	False	2026-09-08 08:51:20.000000 UTC	N/A	Disabled
 1976	816	svchost.exe	0x968f1d815240	13	-	0	False	2026-09-08 08:51:20.000000 UTC	N/A	Disabled
-4616	4612	claude.exe	0x968f1d905080	14	-	1	False	2026-09-08 09:36:37.000000 UTC	N/A	Disabled
 2060	816	svchost.exe	0x968f1d909080	2	-	0	False	2026-09-08 08:51:20.000000 UTC	N/A	Disabled
 2068	816	svchost.exe	0x968f1d90d080	6	-	0	False	2026-09-08 08:51:20.000000 UTC	N/A	Disabled
 2396	816	svchost.exe	0x968f1d9b8080	4	-	0	False	2026-09-08 08:51:20.000000 UTC	N/A	Disabled
@@ -154,7 +153,6 @@ PID	PPID	ImageFileName	Offset(V)	Threads	Handles	SessionId	Wow64	CreateTime	Exit
 1488	10956	chrome.exe	0x968f25e49080	17	-	1	False	2026-09-08 08:57:03.000000 UTC	N/A	Disabled
 5208	10956	chrome.exe	0x968f25e4b080	16	-	1	False	2026-09-08 09:12:07.000000 UTC	N/A	Disabled
 6512	816	svchost.exe	0x968f25e98080	3	-	0	False	2026-09-08 08:57:19.000000 UTC	N/A	Disabled
-3336	4612	claude.exe	0x968f25f5f080	13	-	1	False	2026-09-08 09:33:39.000000 UTC	N/A	Disabled
 6468	960	RuntimeBroker.	0x968f25feb080	3	-	1	False	2026-09-08 08:54:24.000000 UTC	N/A	Disabled
 6044	816	svchost.exe	0x968f260d4080	5	-	1	False	2026-09-08 09:02:45.000000 UTC	N/A	Disabled
 3988	10956	chrome.exe	0x968f261bd080	15	-	1	False	2026-09-08 08:57:03.000000 UTC	N/A	Disabled

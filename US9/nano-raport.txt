@@ -15,7 +15,7 @@ L'extraction brute par `strings SYSTEM | grep -i USBSTOR` confirme et complète 
 
 Le device est référencé sous plusieurs classes d'interface Windows, confirmant sa reconnaissance complète par le système comme disque de stockage : `{53f56307-b6bf-11d0-94f2-00a0c91efb8b}` (interface disque), une variante `{53f5630d...}` (interface volume), ainsi que des entrées sous `SWD\WPDBUSENUM` (Windows Portable Devices Bus Enumerator), qui indiquent que le périphérique a aussi été énuméré comme périphérique portable.
 
-### Phrases prêtes pour le rapport
+### Constats
 
 - "L'inspection brute de la ruche SYSTEM (commande `strings SYSTEM | grep -i USBSTOR`) confirme la présence d'un périphérique de stockage de masse USB de marque SanDisk, modèle Cruzer Blade, revision 1.00."
 - "Le numéro de série unique du périphérique, 4C530000281008116284, est identique à celui relevé lors de l'analyse structurée avec parseUSBs, ce qui corrobore l'identification du device et exclut une erreur de parsing."
@@ -23,6 +23,6 @@ Le device est référencé sous plusieurs classes d'interface Windows, confirman
 - "Le périphérique apparaît également sous la classe d'interface `{53f56307-b6bf-11d0-94f2-00a0c91efb8b}` (GUID_DEVINTERFACE_DISK), confirmant sa reconnaissance en tant que disque, ainsi que sous `SWD\WPDBUSENUM`, indiquant une énumération complémentaire en tant que périphérique portable Windows (WPD)."
 - "Cette double preuve — extraction structurée via regipy/parseUSBs et extraction brute via strings — permet d'affirmer avec un niveau de confiance élevé que le périphérique impliqué dans l'incident est bien cette clé SanDisk Cruzer Blade."
 
-### Point méthodologique pour la restitution
+### Point méthodologique
 
-Mentionne que la méthode `strings` est une technique de corroboration indépendante des parseurs Python : elle prouve que la donnée n'est pas un artefact de bug du script, mais bien présente dans les octets bruts du hive. C'est un bon argument de robustesse à citer dans ta partie méthodologie de l'US9.
+La méthode `strings` est une technique de corroboration indépendante des parseurs Python : elle prouve que la donnée n'est pas un artefact de bug du script, mais bien présente dans les octets bruts du hive. C'est un argument de robustesse pour la partie méthodologie de l'US9.
