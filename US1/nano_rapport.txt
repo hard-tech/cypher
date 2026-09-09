@@ -1,0 +1,42 @@
+==================================================================
+NANO RAPPORT - US1 : MISE EN PLACE D'UN ENVIRONNEMENT SECURISE
+==================================================================
+
+
+------------------------------------------------------------------
+1. CONFIGURATION ACTUELLE
+------------------------------------------------------------------
+
+Logiciel de virtualisation : VirtualBox
+
+Configuration réseau       : Réseau interne (Internal Network)
+  -> La VM ne communique qu'avec d'autres machines rattachées au
+     même réseau interne. Aucun accès à Internet ni au réseau de
+     la machine hôte n'est possible depuis la VM.
+
+------------------------------------------------------------------
+2. EVALUATION DES CRITERES D'ACCEPTATION
+------------------------------------------------------------------
+
+  Critère                                | Etat        | Commentaire
+  ---------------------------------------|-------------|------------------------------------------
+  Environnement isolé (VM / sandbox)     | VALIDE      | VM VirtualBox correctement isolée
+                                         |             | via un réseau interne dédié.
+  Absence de fuite réseau non contrôlée  | VALIDE      | Le mode Réseau interne empêche toute
+                                         |             | sortie vers Internet ou vers l'hôte.
+                                         |             | Aucune fuite réseau possible depuis
+                                         |             | la VM d'analyse.
+
+
+------------------------------------------------------------------
+CONCLUSION
+------------------------------------------------------------------
+
+L'environnement VirtualBox est correctement mis en place avec un
+réseau interne isolant totalement la VM d'analyse d'Internet et
+de la machine hôte. Les deux critères d'acceptation de l'US1 sont
+validés.
+
+==================================================================
+Fin du rapport
+==================================================================
